@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AJO GIRLIE</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{--pink:#fbe4ea;--pink2:#f6c9d6;--choc:#4a2c22;--nude:#f0dcc8;--cream:#fff8ef;--card:#fffaf4;--mut:#8a6b5e;--ok:#3f8f5f;--bad:#b4443f;--sh:0 6px 20px rgba(74,44,34,.08);color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--pink:#2b1a1d;--pink2:#4a2c33;--choc:#f6e6da;--nude:#3a2a24;--cream:#241917;--card:#32231f;--mut:#c4a597;--sh:0 6px 20px rgba(0,0,0,.35);color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;font-family:Nunito,system-ui,sans-serif;background:linear-gradient(180deg,var(--pink),var(--cream) 60%);background-color:var(--cream);color:var(--choc);min-height:100vh;padding-top:env(safe-area-inset-top,0px)}
+h1,h2,h3{font-family:'Cormorant Garamond',Georgia,serif;margin:0 0 .4rem}
+.wrap{max-width:980px;margin:0 auto;padding:14px 14px 96px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.logo{font-family:'Cormorant Garamond',Georgia,serif;font-size:1.7rem;font-weight:700;letter-spacing:.06em}.logo span{color:#d4829b}
+.card{background:var(--card);border-radius:20px;padding:16px;box-shadow:var(--sh);margin-bottom:14px;animation:in .35s ease}
+@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{background:var(--nude);border-radius:16px;padding:12px}.stat b{display:block;font-size:1.25rem}.stat small{color:var(--mut)}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);display:flex;overflow-x:auto;gap:2px;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));box-shadow:0 -4px 16px rgba(74,44,34,.1);z-index:5}
+nav button{flex:1;min-width:76px;border:0;background:none;color:var(--mut);font:600 .72rem Nunito;padding:8px 4px;border-radius:12px;cursor:pointer}nav button.on{background:var(--pink2);color:var(--choc)}
+.btn{background:var(--choc);color:var(--cream);border:0;border-radius:14px;padding:10px 16px;font:700 .9rem Nunito;cursor:pointer}
+.alt{background:var(--pink2);color:var(--choc)}.sm{padding:6px 10px;font-size:.78rem;border-radius:10px}.red{background:var(--bad);color:#fff}.grn{background:var(--ok);color:#fff}
+input,select{width:100%;padding:11px;border-radius:12px;border:1.5px solid var(--pink2);background:var(--cream);color:var(--choc);font:inherit;margin:4px 0 10px}
+label{font-size:.82rem;font-weight:700;color:var(--mut)}
+.bar{height:16px;background:var(--nude);border-radius:99px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,#f2a9bf,#d4829b);border-radius:99px;transition:width .8s}
+.tag{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.72rem;font-weight:700;background:var(--nude)}
+.ok{background:#d9efe0;color:#276b43}.bad{background:#f6d6d4;color:#8f2d29}.warn{background:#f8e8c4;color:#7a5412}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.84rem}td,th{padding:8px 6px;text-align:left;border-bottom:1px solid var(--nude);white-space:nowrap}
+.note{background:var(--nude);border-radius:14px;padding:10px 12px;font-size:.83rem;margin:8px 0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.mut{color:var(--mut)}
+#modal{position:fixed;inset:0;background:rgba(40,20,15,.5);display:none;align-items:center;justify-content:center;z-index:20;padding:16px}#modal .card{max-width:380px;width:100%}
+.auth{max-width:420px;margin:6vh auto}
+</style></head><body>
+<div class="wrap" id="app"><p class="mut" style="text-align:center;margin-top:30vh">Loading…</p></div>
+<div id="modal"><div class="card" id="mbox"></div></div>
+<script>
+const SUPABASE_URL='https://dxzpqdjvncytcyduwvrp.supabase.co';
+const SUPABASE_KEY='sb_publishable_aTjD1PL78FDznTzmBAgGyQ_mESpqQBv';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const N=n=>'₦'+Math.round(+n||0).toLocaleString('en-NG');
+const D=s=>s?new Date(s+'T00:00:00'):null;
+let U,P,ST,PLANS=[],MEM=null,PAYS=[],NOTES=[],BANK=null,PO=null,ADM={},tab='home',authMode='in';
+
+const run=async f=>{try{await f()}catch(e){alert(e.message||String(e))}};
+const q=async r=>{const {data,error}=await r;if(error)throw error;return data};
+
+/* ---- calculations: verified payments only; expected comes from the member's plan ---- */
+function periods(freq,start,to){if(to<start)return 0;const d=(to-start)/864e5;return freq==='weekly'?Math.floor(d/7)+1:(to.getFullYear()-start.getFullYear())*12+to.getMonth()-start.getMonth()+1}
+function endFor(m){let e=D(ST.contribution_cutoff);const now=new Date();if(now<e)e=now;if(m.stopped_at){const s=new Date(D(m.stopped_at)-864e5);if(s<e)e=s}return e}
+const expDate=m=>periods(m.freq,D(m.start_date),endFor(m))*m.amount;
+const expYear=m=>m.status==='stopped'?expDate(m):periods(m.freq,D(m.start_date),D(ST.contribution_cutoff))*m.amount;
+const missed=m=>m.status==='stopped'?0:Math.max(0,expDate(m)-m.verified_total);
+const tag=s=>`<span class="tag ${{verified:'ok',paid:'ok',active:'ok',pending:'warn',processing:'warn',rejected:'bad',stopped:'bad',paused:'warn'}[s]||''}">${s}</span>`;
+const bar=(a,b)=>{const p=b?Math.min(100,Math.round(a/b*100)):0;return `<div class="bar"><i style="width:${p}%"></i></div><small class="mut">${p}% of ${N(b)} expected this year</small>`};
+
+function ask(title,fields,cb){
+ $('#mbox').innerHTML=`<h3>${title}</h3>`+fields.map((f,i)=>`<label>${f.l}</label><input id="mf${i}" type="${f.t||'text'}" value="${esc(f.v||'')}">`).join('')+`<div class="row"><button class="btn" id="mok">Confirm</button><button class="btn alt" id="mno">Cancel</button></div>`;
+ $('#modal').style.display='flex';$('#mno').onclick=()=>$('#modal').style.display='none';
+ $('#mok').onclick=()=>{const v=fields.map((f,i)=>$('#mf'+i).value.trim());if(fields.some((f,i)=>f.req!==false&&!v[i]))return alert('Please fill every field.');$('#modal').style.display='none';run(()=>cb(...v))};
+}
+
+/* ---- load ---- */
+async function loadAll(){
+ P=await q(sb.from('profiles').select('*').eq('id',U.id).single());
+ ST=await q(sb.from('settings').select('*').eq('id',1).single());
+ PLANS=await q(sb.from('plans').select('*').order('freq').order('amount'));
+ MEM=(await q(sb.from('member_summary').select('*').eq('user_id',U.id).eq('cycle_year',ST.cycle_year)))[0]||null;
+ PAYS=await q(sb.from('payments').select('*').eq('user_id',U.id).order('transfer_date',{ascending:false}));
+ NOTES=await q(sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(30));
+ BANK=(await q(sb.from('payout_banks').select('*').eq('user_id',U.id)))[0]||null;
+ PO=(await q(sb.from('payouts').select('*').eq('user_id',U.id).eq('cycle_year',ST.cycle_year)))[0]||null;
+ if(P.role==='admin'){
+  ADM.members=await q(sb.from('member_summary').select('*').eq('cycle_year',ST.cycle_year));
+  ADM.pays=await q(sb.from('payments').select('*,profiles(full_name)').order('created_at',{ascending:false}));
+  ADM.banks=await q(sb.from('payout_banks').select('*'));
+  ADM.payouts=await q(sb.from('payouts').select('*').eq('cycle_year',ST.cycle_year));
+  ADM.audit=await q(sb.from('audit_log').select('*').order('created_at',{ascending:false}).limit(50));
+  ADM.stops=await q(sb.from('stop_requests').select('*,profiles(full_name)').eq('status','open'));
+ }
+}
+async function refresh(){await loadAll();render()}
+const go=t=>{tab=t;render()};
+
+/* ---- auth ---- */
+function authView(){
+ const j=authMode==='up';
+ $('#app').innerHTML=`<div class="auth"><div class="logo" style="text-align:center;margin-bottom:12px">AJO <span>GIRLIE</span></div><div class="card"><h2>${j?'Join the savings group':'Welcome back'}</h2>
+ <form onsubmit="doAuth(event)">${j?'<label>Full name</label><input name="name" required><label>Phone number</label><input name="phone" type="tel" required>':''}
+ <label>Email</label><input name="email" type="email" required><label>Password</label><input name="pw" type="password" minlength="8" required>
+ <button class="btn" style="width:100%">${j?'Create account':'Sign in'}</button></form>
+ <p class="mut" style="text-align:center"><a href="#" onclick="authMode='${j?'in':'up'}';authView();return false" style="color:inherit">${j?'I already have an account':'New here? Create an account'}</a></p></div></div>`;
+}
+function doAuth(e){e.preventDefault();const f=e.target;run(async()=>{
+ if(authMode==='up'){const {data,error}=await sb.auth.signUp({email:f.email.value.trim(),password:f.pw.value,options:{data:{full_name:f.name.value.trim(),phone:f.phone.value.trim()}}});if(error)throw error;if(!data.session){alert('Account created. Please confirm your email, then sign in.');authMode='in';return authView()}}
+ else{const {error}=await sb.auth.signInWithPassword({email:f.email.value.trim(),password:f.pw.value});if(error)throw error}
+ boot()})}
+const logout=()=>sb.auth.signOut().then(()=>location.reload());
+
+/* ---- member actions ---- */
+function joinPlan(id){run(async()=>{await q(sb.rpc('join_plan',{p_plan:id}));await refresh()})}
+function submitPay(e){e.preventDefault();const f=e.target;run(async()=>{
+ let path=null;const file=f.receipt.files[0];
+ if(file){path=`${U.id}/${Date.now()}-${file.name.replace(/[^\w.\-]/g,'_')}`;const {error}=await sb.storage.from('receipts').upload(path,file);if(error)throw error}
+ const {error}=await sb.from('payments').insert({user_id:U.id,amount:+f.amount.value,transfer_date:f.date.value,sender_name:f.sender.value.trim(),reference:f.ref.value.trim(),receipt_path:path});
+ if(error)throw new Error(error.code==='23505'?'This looks like a duplicate of a payment you already submitted. It was not added.':error.message);
+ tab='history';await refresh()})}
+function saveBank(e){e.preventDefault();const f=e.target;run(async()=>{
+ const row={user_id:U.id,account_name:f.bn.value.trim(),bank_name:f.bb.value.trim(),account_number:f.ba.value.trim()};
+ if(!/^\d{10}$/.test(row.account_number))throw new Error('Account number must be 10 digits.');
+ await q(sb.from('payout_banks').upsert(row));alert('Saved.');await refresh()})}
+function reqStop(){ask('Request to stop contributions',[{l:'Reason (optional)',req:false}],async r=>{await q(sb.from('stop_requests').insert({user_id:U.id,reason:r}));alert('Request sent to the admin. Your savings stay recorded until payout day.');await refresh()})}
+function claim(){if(!confirm('Make this account the owner/admin? This only works if no admin exists yet.'))return;run(async()=>{await q(sb.rpc('claim_admin'));alert('You are now the admin.');await refresh()})}
+function markRead(){run(async()=>{await q(sb.from('notifications').update({is_read:true}).eq('user_id',U.id));await refresh()})}
+
+/* ---- admin actions ---- */
+const rpc=(n,a)=>run(async()=>{await q(sb.rpc(n,a));await refresh()});
+const approve=id=>rpc('verify_payment',{p_id:id});
+const reject=id=>ask('Reject payment',[{l:'Reason'}],r=>q(sb.rpc('reject_payment',{p_id:id,p_reason:r})).then(refresh));
+function manualDlg(){
+ $('#mbox').innerHTML=`<h3>Add verified contribution</h3><label>Member</label><select id="x1">${ADM.members.map(m=>`<option value="${m.user_id}">${esc(m.full_name)}</option>`).join('')}</select><label>Amount (₦)</label><input id="x2" type="number"><label>Date</label><input id="x3" type="date"><label>Reason</label><input id="x4"><div class="row"><button class="btn" id="mok">Add</button><button class="btn alt" id="mno">Cancel</button></div>`;
+ $('#modal').style.display='flex';$('#mno').onclick=()=>$('#modal').style.display='none';
+ $('#mok').onclick=()=>{$('#modal').style.display='none';rpc('add_manual_payment',{p_user:$('#x1').value,p_amount:+$('#x2').value,p_date:$('#x3').value,p_reason:$('#x4').value})}}
+const correct=(id,a)=>ask('Correct amount',[{l:'New amount (₦)',t:'number',v:a},{l:'Reason'}],(n,r)=>q(sb.rpc('correct_payment',{p_id:id,p_new_amount:+n,p_reason:r})).then(refresh));
+const stop=(u,d)=>ask('Stop contributions from',[{l:'Effective date',t:'date',v:d||new Date().toISOString().slice(0,10)}],v=>q(sb.rpc('approve_stop',{p_user:u,p_date:v})).then(refresh));
+const adjust=u=>ask('Authorised adjustment',[{l:'Amount (₦, negative reduces)',t:'number'},{l:'Reason'}],(a,r)=>q(sb.rpc('set_adjustment',{p_user:u,p_amount:+a,p_reason:r})).then(refresh));
+const payStatus=u=>rpc('set_payout_status',{p_user:u,p_status:'processing'});
+const markPaid=(u,due)=>ask('Mark as paid',[{l:'Amount paid (₦)',t:'number',v:due},{l:'Date paid',t:'date',v:new Date().toISOString().slice(0,10)},{l:'Transfer reference'}],(a,d,r)=>q(sb.rpc('set_payout_status',{p_user:u,p_status:'paid',p_amount:+a,p_date:d,p_ref:r})).then(refresh));
+function saveSettings(e){e.preventDefault();const f=e.target;run(async()=>{
+ await q(sb.from('settings').update({app_name:f.app.value,cycle_year:+f.year.value,cycle_start:f.start.value,contribution_cutoff:f.cutoff.value,payout_date:f.payout.value,bank_name:f.bank.value,account_name:f.an.value,account_number:f.ano.value}).eq('id',1));alert('Settings saved.');await refresh()})}
+function addPlan(e){e.preventDefault();const f=e.target;run(async()=>{await q(sb.from('plans').insert({freq:f.freq.value,amount:+f.amount.value,label:f.label.value||null}));await refresh()})}
+const togglePlan=(id,on)=>run(async()=>{await q(sb.from('plans').update({is_active:!on}).eq('id',id));await refresh()});
+function csv(name,rows){const t=rows.map(r=>r.map(c=>'"'+String(c??'').replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download=name;a.click()}
+const receipt=p=>run(async()=>{const {data,error}=await sb.storage.from('receipts').createSignedUrl(p,120);if(error)throw error;window.open(data.signedUrl,'_blank')});
+
+/* ---- views ---- */
+const bankBox=()=>`<div class="note"><b>Pay by bank transfer only</b><br>Bank: ${esc(ST.bank_name)}<br>Account name: ${esc(ST.account_name)}<br>Account number: ${esc(ST.account_number)}</div>`;
+function planPicker(){return `<div class="card"><h2>Choose your savings plan</h2><p class="mut">Pick how often and how much you’ll contribute.</p>${PLANS.filter(p=>p.is_active).map(p=>`<div class="note row" style="justify-content:space-between"><span><b>${N(p.amount)}</b> ${p.freq}${p.label?' · '+esc(p.label):''}</span><button class="btn sm" onclick="joinPlan('${p.id}')">Select</button></div>`).join('')||'<p>No plans are available yet. Please check back soon.</p>'}</div>`}
+
+function memberView(){
+ const m=MEM;
+ if(tab==='home')return `<div class="card"><h2>Welcome, ${esc((P.full_name||'').split(' ')[0])} 🌸</h2><p class="mut">Savings year ${ST.cycle_year} · Payout on ${ST.payout_date}</p>
+ <div class="grid"><div class="stat"><small>Verified savings</small><b>${N(m.verified_total)}</b></div><div class="stat"><small>Verified payments</small><b>${m.verified_count}</b></div><div class="stat"><small>Pending check</small><b>${m.pending_count}</b></div><div class="stat"><small>Outstanding</small><b>${N(missed(m))}</b></div><div class="stat"><small>My plan</small><b style="font-size:1rem">${N(m.amount)} ${m.freq}</b></div></div>
+ <h3 style="margin-top:14px">Savings progress</h3>${bar(m.verified_total,expYear(m))}
+ <p>Status: ${tag(m.status)} · Payout: ${tag(PO?.status||'awaiting')}</p>
+ ${m.status==='active'?`<button class="btn alt sm" onclick="reqStop()">Request to stop contributions</button>`:'<div class="note">Contributions stopped. Your verified savings stay recorded and are paid on the payout date. Early withdrawal isn’t available.</div>'}</div>`;
+ if(tab==='pay')return `<div class="card"><h2>Make a contribution</h2>${bankBox()}<div class="note">Submitting this form does <b>not</b> mean your payment has been received. It stays <i>pending verification</i> until the admin confirms it in the bank account.</div>
+ <form onsubmit="submitPay(event)"><label>Amount transferred (₦)</label><input name="amount" type="number" min="1" value="${m.amount}" required><label>Date of transfer</label><input name="date" type="date" required><label>Sender’s name</label><input name="sender" required><label>Transfer reference / narration</label><input name="ref" required><label>Receipt screenshot (optional)</label><input name="receipt" type="file" accept="image/*"><button class="btn">Submit confirmation</button></form></div>`;
+ if(tab==='history')return `<div class="card"><h2>Payment history</h2><div class="tw"><table><tr><th>Date</th><th>Amount</th><th>Reference</th><th>Status</th></tr>${PAYS.map(p=>`<tr><td>${p.transfer_date}</td><td>${N(p.amount)}</td><td>${esc(p.reference)}</td><td>${tag(p.status)} ${esc(p.reject_reason||'')}</td></tr>`).join('')||'<tr><td colspan=4>No payments yet.</td></tr>'}</table></div></div>`;
+ if(tab==='payout'){const b=BANK||{};return `<div class="card"><h2>December payout</h2><p>Amount due: <b>${N(m.verified_total+(+PO?.adjustment||0))}</b> · ${tag(PO?.status||'awaiting')}${PO?.status==='paid'?` <small class="mut">Paid ${PO.paid_date}</small>`:''}</p>
+ <form onsubmit="saveBank(event)"><label>Account holder name</label><input name="bn" value="${esc(b.account_name)}" required><label>Bank name</label><input name="bb" value="${esc(b.bank_name)}" required><label>Account number</label><input name="ba" value="${esc(b.account_number)}" inputmode="numeric" required><button class="btn">Save bank details</button></form></div>`}
+ if(tab==='alerts')return `<div class="card"><h2>Notifications</h2><button class="btn alt sm" onclick="markRead()">Mark all read</button>${NOTES.map(n=>`<p>${n.is_read?'':'🔔 '}${esc(n.message)} <small class="mut">${new Date(n.created_at).toLocaleDateString()}</small></p>`).join('')||'<p class="mut">Nothing yet.</p>'}</div>`;
+}
+function adminView(){
+ const A=ADM.members,tot=ADM.pays.filter(p=>p.status==='verified').reduce((a,p)=>a+ +p.amount,0);
+ const po=u=>ADM.payouts.find(x=>x.user_id===u),adj=u=>+po(u)?.adjustment||0,due=m=>+m.verified_total+adj(m.user_id),ps=u=>po(u)?.status||'awaiting';
+ if(tab==='home')return `<div class="card"><h2>Admin dashboard</h2><div class="grid">${[['Registered members',A.length],['Active',A.filter(m=>m.status==='active').length],['Stopped',A.filter(m=>m.status==='stopped').length],['Verified received',N(tot)],['Pending confirmations',ADM.pays.filter(p=>p.status==='pending').length],['To return '+ST.payout_date.slice(5),N(A.reduce((a,m)=>a+due(m),0))],['With outstanding',A.filter(m=>missed(m)>0).length],['Paid out',A.filter(m=>ps(m.user_id)==='paid').length],['Yet to be paid',A.filter(m=>ps(m.user_id)!=='paid').length]].map(([a,b])=>`<div class="stat"><small>${a}</small><b>${b}</b></div>`).join('')}</div></div>
+ ${ADM.stops.length?`<div class="card"><h3>Stop requests</h3>${ADM.stops.map(r=>`<p>${esc(r.profiles?.full_name)} <small class="mut">${esc(r.reason)}</small> <button class="btn sm" onclick="stop('${r.user_id}')">Approve</button></p>`).join('')}</div>`:''}`;
+ if(tab==='pay')return `<div class="card"><h2>Contributions</h2><div class="row"><select id="fm" style="width:auto" onchange="window.F=this.value;render()"><option value="">All members</option>${A.map(m=>`<option value="${m.user_id}" ${window.F===m.user_id?'selected':''}>${esc(m.full_name)}</option>`).join('')}</select><button class="btn sm" onclick="manualDlg()">+ Manual entry</button></div>
+ <div class="tw"><table><tr><th>Member</th><th>Date</th><th>Amount</th><th>Reference</th><th>Status</th><th></th></tr>${ADM.pays.filter(p=>!window.F||p.user_id===window.F).map(p=>`<tr><td>${esc(p.profiles?.full_name)}</td><td>${p.transfer_date}</td><td>${N(p.amount)}</td><td>${esc(p.reference)}</td><td>${tag(p.status)}</td><td>${p.status==='pending'?`<button class="btn sm grn" onclick="approve('${p.id}')">✓</button> <button class="btn sm red" onclick="reject('${p.id}')">✗</button> `:''}${p.receipt_path?`<button class="btn sm alt" onclick="receipt('${p.receipt_path}')">Receipt</button> `:''}<button class="btn sm alt" onclick="correct('${p.id}',${p.amount})">Fix</button></td></tr>`).join('')}</table></div></div>
+ <div class="card"><h3>Audit trail</h3><div class="tw"><table><tr><th>When</th><th>Action</th><th>Detail</th><th>Reason</th></tr>${ADM.audit.map(a=>`<tr><td>${new Date(a.created_at).toLocaleString()}</td><td>${esc(a.action)}</td><td>${esc(a.detail)}</td><td>${esc(a.reason)}</td></tr>`).join('')}</table></div></div>`;
+ if(tab==='members')return `<div class="card"><h2>Members</h2><div class="tw"><table><tr><th>Name</th><th>Phone</th><th>Plan</th><th>Verified</th><th>Expected to date</th><th>Outstanding</th><th>Status</th><th></th></tr>${A.map(m=>`<tr><td>${esc(m.full_name)}</td><td>${esc(m.phone)}</td><td>${N(m.amount)} ${m.freq}</td><td>${N(m.verified_total)}</td><td>${N(expDate(m))}</td><td>${N(missed(m))}</td><td>${tag(m.status)}</td><td>${m.status==='active'?`<button class="btn sm alt" onclick="stop('${m.user_id}')">Stop</button>`:''}</td></tr>`).join('')}</table></div></div>`;
+ if(tab==='payout')return `<div class="card"><h2>Payout management · ${ST.payout_date}</h2><p class="mut">You make the transfers in your bank app, then record them here.</p><div class="tw"><table><tr><th>Member</th><th>Plan</th><th>Verified</th><th>Adj.</th><th>Due</th><th>Bank</th><th>Account name</th><th>Account no.</th><th>Status</th><th></th></tr>${A.map(m=>{const b=ADM.banks.find(x=>x.user_id===m.user_id)||{};return `<tr><td>${esc(m.full_name)}</td><td>${N(m.amount)} ${m.freq[0]}</td><td>${N(m.verified_total)}</td><td>${N(adj(m.user_id))}</td><td><b>${N(due(m))}</b></td><td>${esc(b.bank_name||'—')}</td><td>${esc(b.account_name||'—')}</td><td>${esc(b.account_number||'—')}</td><td>${tag(ps(m.user_id))}</td><td><button class="btn sm alt" onclick="adjust('${m.user_id}')">Adjust</button> <button class="btn sm alt" onclick="payStatus('${m.user_id}')">Processing</button> <button class="btn sm grn" onclick="markPaid('${m.user_id}',${due(m)})">Paid</button></td></tr>`}).join('')}</table></div></div>`;
+ if(tab==='reports'){const mo=Array(12).fill(0);ADM.pays.filter(p=>p.status==='verified'&&p.cycle_year===ST.cycle_year).forEach(p=>mo[+p.transfer_date.slice(5,7)-1]+=+p.amount);
+ return `<div class="card"><h2>Reports</h2><p>Total verified: <b>${N(tot)}</b> · To return: <b>${N(A.reduce((a,m)=>a+due(m),0))}</b> · Paid out: ${A.filter(m=>ps(m.user_id)==='paid').length}/${A.length}</p><p class="mut">Verified payments only. No interest is calculated.</p>
+ <div class="tw"><table><tr>${'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ').map(x=>`<th>${x}</th>`).join('')}</tr><tr>${mo.map(x=>`<td>${x?N(x):'–'}</td>`).join('')}</tr></table></div>
+ <div class="row" style="margin-top:10px"><button class="btn sm" onclick="exportMembers()">Export members CSV</button><button class="btn sm" onclick="exportPays()">Export payments CSV</button></div></div>`}
+ if(tab==='settings'){const s=ST;return `<div class="card"><h2>Settings</h2><form onsubmit="saveSettings(event)">${[['app','App name',s.app_name],['year','Savings year',s.cycle_year,'number'],['start','Cycle start',s.cycle_start,'date'],['cutoff','Final contribution cutoff',s.contribution_cutoff,'date'],['payout','Payout date',s.payout_date,'date'],['bank','Bank',s.bank_name],['an','GTBank account name',s.account_name],['ano','GTBank account number',s.account_number]].map(([k,l,v,t])=>`<label>${l}</label><input name="${k}" type="${t||'text'}" value="${esc(v)}">`).join('')}<button class="btn">Save settings</button></form></div>
+ <div class="card"><h3>Contribution plans</h3>${PLANS.map(p=>`<p>${N(p.amount)} ${p.freq} ${tag(p.is_active?'active':'stopped').replace('stopped','inactive')} <button class="btn sm alt" onclick="togglePlan('${p.id}',${p.is_active})">${p.is_active?'Deactivate':'Activate'}</button></p>`).join('')}
+ <form class="row" onsubmit="addPlan(event)"><select name="freq" style="width:auto"><option>weekly</option><option>monthly</option></select><input name="amount" type="number" min="1" placeholder="Amount ₦" style="width:130px" required><input name="label" placeholder="Label (optional)" style="width:160px"><button class="btn sm">Add plan</button></form></div>`}
+}
+function exportMembers(){const po=u=>ADM.payouts.find(x=>x.user_id===u);csv('members-savings.csv',[['Name','Plan','Status','Verified','Adjustment','Due','Outstanding','Payout status'],...ADM.members.map(m=>{const a=+po(m.user_id)?.adjustment||0;return [m.full_name,m.amount+' '+m.freq,m.status,m.verified_total,a,+m.verified_total+a,missed(m),po(m.user_id)?.status||'awaiting']})])}
+function exportPays(){csv('payments.csv',[['Member','Date','Amount','Reference','Status'],...ADM.pays.map(p=>[p.profiles?.full_name,p.transfer_date,p.amount,p.reference,p.status])])}
+
+function render(){
+ const adm=P.role==='admin';
+ const tabs=adm?[['home','Home'],['pay','Payments'],['members','Members'],['payout','Payouts'],['reports','Reports'],['settings','Settings']]:[['home','Home'],['pay','Pay'],['history','History'],['payout','Payout'],['alerts','Alerts']];
+ const unread=NOTES.filter(n=>!n.is_read).length;
+ let body=adm?adminView():(MEM?memberView():planPicker());
+ $('#app').innerHTML=`<div class="top"><div class="logo">${esc(ST.app_name).replace(/ (\S+)$/,' <span>$1</span>')}</div><div class="row"><small class="mut">${esc(P.full_name)}</small><button class="btn alt sm" onclick="logout()">Sign out</button></div></div>${body}
+ ${!adm?`<p style="text-align:center"><a href="#" class="mut" onclick="claim();return false" style="font-size:.75rem">I’m the owner (first-time setup)</a></p>`:''}
+ ${adm||MEM?`<nav>${tabs.map(([k,l])=>`<button class="${tab===k?'on':''}" onclick="go('${k}')">${l}${k==='alerts'&&unread?' ('+unread+')':''}</button>`).join('')}</nav>`:''}`;
+}
+async function boot(){
+ const {data:{session}}=await sb.auth.getSession();
+ if(!session)return authView();
+ U=session.user;await run(async()=>{await loadAll();render()});
+}
+boot();
+</script></body></html>
