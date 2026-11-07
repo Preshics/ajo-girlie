@@ -42,12 +42,14 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const N=n=>'₦'+Math.round(+n||0).toLocaleString('en-NG');
 const D=s=>s?new Date(s+'T00:00:00'):null;
-let U,P,ST,PLANS=[],MEM=null,PAYS=[],NOTES=[],BANK=null,PO=null,ADM={},tab='home',authMode='in';
+let U,P,ST,PLANS=[],MEMS=[],MYSTOPS=[],PAYS=[],NOTES=[],BANK=null,PO=null,ADM={},tab='home',authMode='in';
 
 const run=async f=>{try{await f()}catch(e){alert(e.message||String(e))}};
 const q=async r=>{const {data,error}=await r;if(error)throw error;return data};
+const sum=(a,f)=>a.reduce((s,x)=>s+ +f(x),0);
+const planName=m=>N(m.amount)+' '+m.freq;
 
-/* ---- calculations: verified payments only; expected comes from the member's plan ---- */
+/* ---- calculations: verified payments only; expected comes from each plan ---- */
 function periods(freq,start,to){if(to<start)return 0;const d=(to-start)/864e5;return freq==='weekly'?Math.floor(d/7)+1:(to.getFullYear()-start.getFullYear())*12+to.getMonth()-start.getMonth()+1}
 function endFor(m){let e=D(ST.contribution_cutoff);const now=new Date();if(now<e)e=now;if(m.stopped_at){const s=new Date(D(m.stopped_at)-864e5);if(s<e)e=s}return e}
 const expDate=m=>periods(m.freq,D(m.start_date),endFor(m))*m.amount;
@@ -67,13 +69,14 @@ async function loadAll(){
  P=await q(sb.from('profiles').select('*').eq('id',U.id).single());
  ST=await q(sb.from('settings').select('*').eq('id',1).single());
  PLANS=await q(sb.from('plans').select('*').order('freq').order('amount'));
- MEM=(await q(sb.from('member_summary').select('*').eq('user_id',U.id).eq('cycle_year',ST.cycle_year)))[0]||null;
+ MEMS=await q(sb.from('member_summary').select('*').eq('user_id',U.id).eq('cycle_year',ST.cycle_year).order('amount'));
+ MYSTOPS=await q(sb.from('stop_requests').select('*').eq('user_id',U.id).eq('status','open'));
  PAYS=await q(sb.from('payments').select('*').eq('user_id',U.id).order('transfer_date',{ascending:false}));
  NOTES=await q(sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(30));
  BANK=(await q(sb.from('payout_banks').select('*').eq('user_id',U.id)))[0]||null;
  PO=(await q(sb.from('payouts').select('*').eq('user_id',U.id).eq('cycle_year',ST.cycle_year)))[0]||null;
  if(P.role==='admin'){
-  ADM.members=await q(sb.from('member_summary').select('*').eq('cycle_year',ST.cycle_year));
+  ADM.members=await q(sb.from('member_summary').select('*').eq('cycle_year',ST.cycle_year).order('full_name'));
   ADM.pays=await q(sb.from('payments').select('*,profiles(full_name)').order('created_at',{ascending:false}));
   ADM.banks=await q(sb.from('payout_banks').select('*'));
   ADM.payouts=await q(sb.from('payouts').select('*').eq('cycle_year',ST.cycle_year));
@@ -100,18 +103,18 @@ function doAuth(e){e.preventDefault();const f=e.target;run(async()=>{
 const logout=()=>sb.auth.signOut().then(()=>location.reload());
 
 /* ---- member actions ---- */
-function joinPlan(id){run(async()=>{await q(sb.rpc('join_plan',{p_plan:id}));await refresh()})}
+function joinPlan(id){run(async()=>{await q(sb.rpc('join_plan',{p_plan:id}));tab='home';await refresh()})}
 function submitPay(e){e.preventDefault();const f=e.target;run(async()=>{
  let path=null;const file=f.receipt.files[0];
  if(file){path=`${U.id}/${Date.now()}-${file.name.replace(/[^\w.\-]/g,'_')}`;const {error}=await sb.storage.from('receipts').upload(path,file);if(error)throw error}
- const {error}=await sb.from('payments').insert({user_id:U.id,amount:+f.amount.value,transfer_date:f.date.value,sender_name:f.sender.value.trim(),reference:f.ref.value.trim(),receipt_path:path});
+ const {error}=await sb.from('payments').insert({user_id:U.id,membership_id:f.mid.value,amount:+f.amount.value,transfer_date:f.date.value,sender_name:f.sender.value.trim(),reference:f.ref.value.trim(),receipt_path:path});
  if(error)throw new Error(error.code==='23505'?'This looks like a duplicate of a payment you already submitted. It was not added.':error.message);
  tab='history';await refresh()})}
 function saveBank(e){e.preventDefault();const f=e.target;run(async()=>{
  const row={user_id:U.id,account_name:f.bn.value.trim(),bank_name:f.bb.value.trim(),account_number:f.ba.value.trim()};
  if(!/^\d{10}$/.test(row.account_number))throw new Error('Account number must be 10 digits.');
  await q(sb.from('payout_banks').upsert(row));alert('Saved.');await refresh()})}
-function reqStop(){ask('Request to stop contributions',[{l:'Reason (optional)',req:false}],async r=>{await q(sb.from('stop_requests').insert({user_id:U.id,reason:r}));alert('Request sent to the admin. Your savings stay recorded until payout day.');await refresh()})}
+function reqStop(mid){ask('Request to stop this plan',[{l:'Reason (optional)',req:false}],async r=>{await q(sb.from('stop_requests').insert({user_id:U.id,membership_id:mid,reason:r}));alert('Request sent to the admin. Your savings stay recorded until payout day.');await refresh()})}
 function claim(){if(!confirm('Make this account the owner/admin? This only works if no admin exists yet.'))return;run(async()=>{await q(sb.rpc('claim_admin'));alert('You are now the admin.');await refresh()})}
 function markRead(){run(async()=>{await q(sb.from('notifications').update({is_read:true}).eq('user_id',U.id));await refresh()})}
 
@@ -120,11 +123,11 @@ const rpc=(n,a)=>run(async()=>{await q(sb.rpc(n,a));await refresh()});
 const approve=id=>rpc('verify_payment',{p_id:id});
 const reject=id=>ask('Reject payment',[{l:'Reason'}],r=>q(sb.rpc('reject_payment',{p_id:id,p_reason:r})).then(refresh));
 function manualDlg(){
- $('#mbox').innerHTML=`<h3>Add verified contribution</h3><label>Member</label><select id="x1">${ADM.members.map(m=>`<option value="${m.user_id}">${esc(m.full_name)}</option>`).join('')}</select><label>Amount (₦)</label><input id="x2" type="number"><label>Date</label><input id="x3" type="date"><label>Reason</label><input id="x4"><div class="row"><button class="btn" id="mok">Add</button><button class="btn alt" id="mno">Cancel</button></div>`;
+ $('#mbox').innerHTML=`<h3>Add verified contribution</h3><label>Member and plan</label><select id="x1">${ADM.members.map(m=>`<option value="${m.membership_id}">${esc(m.full_name)} · ${planName(m)}</option>`).join('')}</select><label>Amount (₦)</label><input id="x2" type="number"><label>Date</label><input id="x3" type="date"><label>Reason</label><input id="x4"><div class="row"><button class="btn" id="mok">Add</button><button class="btn alt" id="mno">Cancel</button></div>`;
  $('#modal').style.display='flex';$('#mno').onclick=()=>$('#modal').style.display='none';
- $('#mok').onclick=()=>{$('#modal').style.display='none';rpc('add_manual_payment',{p_user:$('#x1').value,p_amount:+$('#x2').value,p_date:$('#x3').value,p_reason:$('#x4').value})}}
+ $('#mok').onclick=()=>{$('#modal').style.display='none';rpc('add_manual_payment',{p_membership:$('#x1').value,p_amount:+$('#x2').value,p_date:$('#x3').value,p_reason:$('#x4').value})}}
 const correct=(id,a)=>ask('Correct amount',[{l:'New amount (₦)',t:'number',v:a},{l:'Reason'}],(n,r)=>q(sb.rpc('correct_payment',{p_id:id,p_new_amount:+n,p_reason:r})).then(refresh));
-const stop=(u,d)=>ask('Stop contributions from',[{l:'Effective date',t:'date',v:d||new Date().toISOString().slice(0,10)}],v=>q(sb.rpc('approve_stop',{p_user:u,p_date:v})).then(refresh));
+const stop=(mid,d)=>ask('Stop this plan from',[{l:'Effective date',t:'date',v:d||new Date().toISOString().slice(0,10)}],v=>q(sb.rpc('approve_stop',{p_membership:mid,p_date:v})).then(refresh));
 const adjust=u=>ask('Authorised adjustment',[{l:'Amount (₦, negative reduces)',t:'number'},{l:'Reason'}],(a,r)=>q(sb.rpc('set_adjustment',{p_user:u,p_amount:+a,p_reason:r})).then(refresh));
 const payStatus=u=>rpc('set_payout_status',{p_user:u,p_status:'processing'});
 const markPaid=(u,due)=>ask('Mark as paid',[{l:'Amount paid (₦)',t:'number',v:due},{l:'Date paid',t:'date',v:new Date().toISOString().slice(0,10)},{l:'Transfer reference'}],(a,d,r)=>q(sb.rpc('set_payout_status',{p_user:u,p_status:'paid',p_amount:+a,p_date:d,p_ref:r})).then(refresh));
@@ -137,51 +140,57 @@ const receipt=p=>run(async()=>{const {data,error}=await sb.storage.from('receipt
 
 /* ---- views ---- */
 const bankBox=()=>`<div class="note"><b>Pay by bank transfer only</b><br>Bank: ${esc(ST.bank_name)}<br>Account name: ${esc(ST.account_name)}<br>Account number: ${esc(ST.account_number)}</div>`;
-function planPicker(){return `<div class="card"><h2>Choose your savings plan</h2><p class="mut">Pick how often and how much you’ll contribute.</p>${PLANS.filter(p=>p.is_active).map(p=>`<div class="note row" style="justify-content:space-between"><span><b>${N(p.amount)}</b> ${p.freq}${p.label?' · '+esc(p.label):''}</span><button class="btn sm" onclick="joinPlan('${p.id}')">Select</button></div>`).join('')||'<p>No plans are available yet. Please check back soon.</p>'}</div>`}
+const planRows=list=>list.map(p=>`<div class="note row" style="justify-content:space-between"><span><b>${N(p.amount)}</b> ${p.freq}${p.label?' · '+esc(p.label):''}</span><button class="btn sm" onclick="joinPlan('${p.id}')">Select</button></div>`).join('');
+const availPlans=()=>PLANS.filter(p=>p.is_active&&!MEMS.some(m=>m.freq===p.freq&&+m.amount===+p.amount));
+function planPicker(){return `<div class="card"><h2>Choose your savings plan</h2><p class="mut">Pick how often and how much you’ll contribute. You can add more plans later.</p>${planRows(availPlans())||'<p>No plans are available yet. Please check back soon.</p>'}</div>`}
 
 function memberView(){
- const m=MEM;
+ const tv=sum(MEMS,m=>m.verified_total),tc=sum(MEMS,m=>m.verified_count),tp=sum(MEMS,m=>m.pending_count),to=sum(MEMS,missed),te=sum(MEMS,expYear);
+ const pname=id=>{const m=MEMS.find(x=>x.membership_id===id);return m?planName(m):'—'};
  if(tab==='home')return `<div class="card"><h2>Welcome, ${esc((P.full_name||'').split(' ')[0])} 🌸</h2><p class="mut">Savings year ${ST.cycle_year} · Payout on ${ST.payout_date}</p>
- <div class="grid"><div class="stat"><small>Verified savings</small><b>${N(m.verified_total)}</b></div><div class="stat"><small>Verified payments</small><b>${m.verified_count}</b></div><div class="stat"><small>Pending check</small><b>${m.pending_count}</b></div><div class="stat"><small>Outstanding</small><b>${N(missed(m))}</b></div><div class="stat"><small>My plan</small><b style="font-size:1rem">${N(m.amount)} ${m.freq}</b></div></div>
- <h3 style="margin-top:14px">Savings progress</h3>${bar(m.verified_total,expYear(m))}
- <p>Status: ${tag(m.status)} · Payout: ${tag(PO?.status||'awaiting')}</p>
- ${m.status==='active'?`<button class="btn alt sm" onclick="reqStop()">Request to stop contributions</button>`:'<div class="note">Contributions stopped. Your verified savings stay recorded and are paid on the payout date. Early withdrawal isn’t available.</div>'}</div>`;
+ <div class="grid"><div class="stat"><small>Total verified savings</small><b>${N(tv)}</b></div><div class="stat"><small>Verified payments</small><b>${tc}</b></div><div class="stat"><small>Pending check</small><b>${tp}</b></div><div class="stat"><small>Outstanding</small><b>${N(to)}</b></div></div>
+ <h3 style="margin-top:14px">Overall progress</h3>${bar(tv,te)}<p>Payout: ${tag(PO?.status||'awaiting')}</p></div>
+ ${MEMS.map(m=>`<div class="card"><h3>${planName(m)} ${tag(m.status)}</h3><p>Saved: <b>${N(m.verified_total)}</b> · Outstanding: ${N(missed(m))}</p>${bar(m.verified_total,expYear(m))}
+ <p>${m.status==='active'?(MYSTOPS.some(r=>r.membership_id===m.membership_id)?'<span class="mut">Stop request awaiting admin approval.</span>':`<button class="btn alt sm" onclick="reqStop('${m.membership_id}')">Request to stop this plan</button>`):'<span class="note">Stopped. Your verified savings stay recorded and are paid on the payout date. Early withdrawal isn’t available.</span>'}</p></div>`).join('')}`;
+ if(tab==='plans')return `<div class="card"><h2>My plans</h2>${MEMS.map(m=>`<p><b>${planName(m)}</b> ${tag(m.status)} · starts ${m.start_date}</p>`).join('')}<p class="mut">Final contribution cutoff: ${ST.contribution_cutoff}</p></div>
+ <div class="card"><h3>Add another plan</h3>${planRows(availPlans())||'<p class="mut">No other plans are available.</p>'}</div>`;
  if(tab==='pay')return `<div class="card"><h2>Make a contribution</h2>${bankBox()}<div class="note">Submitting this form does <b>not</b> mean your payment has been received. It stays <i>pending verification</i> until the admin confirms it in the bank account.</div>
- <form onsubmit="submitPay(event)"><label>Amount transferred (₦)</label><input name="amount" type="number" min="1" value="${m.amount}" required><label>Date of transfer</label><input name="date" type="date" required><label>Sender’s name</label><input name="sender" required><label>Transfer reference / narration</label><input name="ref" required><label>Receipt screenshot (optional)</label><input name="receipt" type="file" accept="image/*"><button class="btn">Submit confirmation</button></form></div>`;
- if(tab==='history')return `<div class="card"><h2>Payment history</h2><div class="tw"><table><tr><th>Date</th><th>Amount</th><th>Reference</th><th>Status</th></tr>${PAYS.map(p=>`<tr><td>${p.transfer_date}</td><td>${N(p.amount)}</td><td>${esc(p.reference)}</td><td>${tag(p.status)} ${esc(p.reject_reason||'')}</td></tr>`).join('')||'<tr><td colspan=4>No payments yet.</td></tr>'}</table></div></div>`;
- if(tab==='payout'){const b=BANK||{};return `<div class="card"><h2>December payout</h2><p>Amount due: <b>${N(m.verified_total+(+PO?.adjustment||0))}</b> · ${tag(PO?.status||'awaiting')}${PO?.status==='paid'?` <small class="mut">Paid ${PO.paid_date}</small>`:''}</p>
+ <form onsubmit="submitPay(event)"><label>Which plan is this payment for?</label><select name="mid">${MEMS.filter(m=>m.status==='active').map(m=>`<option value="${m.membership_id}">${planName(m)}</option>`).join('')}</select><label>Amount transferred (₦)</label><input name="amount" type="number" min="1" required><label>Date of transfer</label><input name="date" type="date" required><label>Sender’s name</label><input name="sender" required><label>Transfer reference / narration</label><input name="ref" required><label>Receipt screenshot (optional)</label><input name="receipt" type="file" accept="image/*"><button class="btn">Submit confirmation</button></form></div>`;
+ if(tab==='history')return `<div class="card"><h2>Payment history</h2><div class="tw"><table><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Reference</th><th>Status</th></tr>${PAYS.map(p=>`<tr><td>${p.transfer_date}</td><td>${pname(p.membership_id)}</td><td>${N(p.amount)}</td><td>${esc(p.reference)}</td><td>${tag(p.status)} ${esc(p.reject_reason||'')}</td></tr>`).join('')||'<tr><td colspan=5>No payments yet.</td></tr>'}</table></div></div>`;
+ if(tab==='payout'){const b=BANK||{};return `<div class="card"><h2>December payout</h2><p>Amount due (all plans): <b>${N(tv+(+PO?.adjustment||0))}</b> · ${tag(PO?.status||'awaiting')}${PO?.status==='paid'?` <small class="mut">Paid ${PO.paid_date}</small>`:''}</p>
  <form onsubmit="saveBank(event)"><label>Account holder name</label><input name="bn" value="${esc(b.account_name)}" required><label>Bank name</label><input name="bb" value="${esc(b.bank_name)}" required><label>Account number</label><input name="ba" value="${esc(b.account_number)}" inputmode="numeric" required><button class="btn">Save bank details</button></form></div>`}
  if(tab==='alerts')return `<div class="card"><h2>Notifications</h2><button class="btn alt sm" onclick="markRead()">Mark all read</button>${NOTES.map(n=>`<p>${n.is_read?'':'🔔 '}${esc(n.message)} <small class="mut">${new Date(n.created_at).toLocaleDateString()}</small></p>`).join('')||'<p class="mut">Nothing yet.</p>'}</div>`;
 }
 function adminView(){
- const A=ADM.members,tot=ADM.pays.filter(p=>p.status==='verified').reduce((a,p)=>a+ +p.amount,0);
- const po=u=>ADM.payouts.find(x=>x.user_id===u),adj=u=>+po(u)?.adjustment||0,due=m=>+m.verified_total+adj(m.user_id),ps=u=>po(u)?.status||'awaiting';
- if(tab==='home')return `<div class="card"><h2>Admin dashboard</h2><div class="grid">${[['Registered members',A.length],['Active',A.filter(m=>m.status==='active').length],['Stopped',A.filter(m=>m.status==='stopped').length],['Verified received',N(tot)],['Pending confirmations',ADM.pays.filter(p=>p.status==='pending').length],['To return '+ST.payout_date.slice(5),N(A.reduce((a,m)=>a+due(m),0))],['With outstanding',A.filter(m=>missed(m)>0).length],['Paid out',A.filter(m=>ps(m.user_id)==='paid').length],['Yet to be paid',A.filter(m=>ps(m.user_id)!=='paid').length]].map(([a,b])=>`<div class="stat"><small>${a}</small><b>${b}</b></div>`).join('')}</div></div>
- ${ADM.stops.length?`<div class="card"><h3>Stop requests</h3>${ADM.stops.map(r=>`<p>${esc(r.profiles?.full_name)} <small class="mut">${esc(r.reason)}</small> <button class="btn sm" onclick="stop('${r.user_id}')">Approve</button></p>`).join('')}</div>`:''}`;
- if(tab==='pay')return `<div class="card"><h2>Contributions</h2><div class="row"><select id="fm" style="width:auto" onchange="window.F=this.value;render()"><option value="">All members</option>${A.map(m=>`<option value="${m.user_id}" ${window.F===m.user_id?'selected':''}>${esc(m.full_name)}</option>`).join('')}</select><button class="btn sm" onclick="manualDlg()">+ Manual entry</button></div>
- <div class="tw"><table><tr><th>Member</th><th>Date</th><th>Amount</th><th>Reference</th><th>Status</th><th></th></tr>${ADM.pays.filter(p=>!window.F||p.user_id===window.F).map(p=>`<tr><td>${esc(p.profiles?.full_name)}</td><td>${p.transfer_date}</td><td>${N(p.amount)}</td><td>${esc(p.reference)}</td><td>${tag(p.status)}</td><td>${p.status==='pending'?`<button class="btn sm grn" onclick="approve('${p.id}')">✓</button> <button class="btn sm red" onclick="reject('${p.id}')">✗</button> `:''}${p.receipt_path?`<button class="btn sm alt" onclick="receipt('${p.receipt_path}')">Receipt</button> `:''}<button class="btn sm alt" onclick="correct('${p.id}',${p.amount})">Fix</button></td></tr>`).join('')}</table></div></div>
+ const A=ADM.members,tot=sum(ADM.pays.filter(p=>p.status==='verified'),p=>p.amount);
+ const U2=[...new Set(A.map(m=>m.user_id))].map(id=>{const ms=A.filter(m=>m.user_id===id);return{id,name:ms[0].full_name,phone:ms[0].phone,ms,ver:sum(ms,m=>m.verified_total),out:sum(ms,missed)}});
+ const po=u=>ADM.payouts.find(x=>x.user_id===u),adj=u=>+po(u)?.adjustment||0,due=x=>x.ver+adj(x.id),ps=u=>po(u)?.status||'awaiting';
+ if(tab==='home')return `<div class="card"><h2>Admin dashboard</h2><div class="grid">${[['Registered members',U2.length],['Active plans',A.filter(m=>m.status==='active').length],['Stopped plans',A.filter(m=>m.status==='stopped').length],['Verified received',N(tot)],['Pending confirmations',ADM.pays.filter(p=>p.status==='pending').length],['To return '+ST.payout_date.slice(5),N(sum(U2,due))],['With outstanding',U2.filter(x=>x.out>0).length],['Paid out',U2.filter(x=>ps(x.id)==='paid').length],['Yet to be paid',U2.filter(x=>ps(x.id)!=='paid').length]].map(([a,b])=>`<div class="stat"><small>${a}</small><b>${b}</b></div>`).join('')}</div></div>
+ ${ADM.stops.length?`<div class="card"><h3>Stop requests</h3>${ADM.stops.map(r=>{const m=A.find(x=>x.membership_id===r.membership_id)||A.find(x=>x.user_id===r.user_id&&x.status==='active');return `<p>${esc(r.profiles?.full_name)} ${m?'· '+planName(m):''} <small class="mut">${esc(r.reason)}</small> ${m?`<button class="btn sm" onclick="stop('${m.membership_id}')">Approve</button>`:''}</p>`}).join('')}</div>`:''}`;
+ if(tab==='pay')return `<div class="card"><h2>Contributions</h2><div class="row"><select id="fm" style="width:auto" onchange="window.F=this.value;render()"><option value="">All members</option>${U2.map(x=>`<option value="${x.id}" ${window.F===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select><button class="btn sm" onclick="manualDlg()">+ Manual entry</button></div>
+ <div class="tw"><table><tr><th>Member</th><th>Plan</th><th>Date</th><th>Amount</th><th>Reference</th><th>Status</th><th></th></tr>${ADM.pays.filter(p=>!window.F||p.user_id===window.F).map(p=>{const m=A.find(x=>x.membership_id===p.membership_id);return `<tr><td>${esc(p.profiles?.full_name)}</td><td>${m?planName(m):'—'}</td><td>${p.transfer_date}</td><td>${N(p.amount)}</td><td>${esc(p.reference)}</td><td>${tag(p.status)}</td><td>${p.status==='pending'?`<button class="btn sm grn" onclick="approve('${p.id}')">✓</button> <button class="btn sm red" onclick="reject('${p.id}')">✗</button> `:''}${p.receipt_path?`<button class="btn sm alt" onclick="receipt('${p.receipt_path}')">Receipt</button> `:''}<button class="btn sm alt" onclick="correct('${p.id}',${p.amount})">Fix</button></td></tr>`}).join('')}</table></div></div>
  <div class="card"><h3>Audit trail</h3><div class="tw"><table><tr><th>When</th><th>Action</th><th>Detail</th><th>Reason</th></tr>${ADM.audit.map(a=>`<tr><td>${new Date(a.created_at).toLocaleString()}</td><td>${esc(a.action)}</td><td>${esc(a.detail)}</td><td>${esc(a.reason)}</td></tr>`).join('')}</table></div></div>`;
- if(tab==='members')return `<div class="card"><h2>Members</h2><div class="tw"><table><tr><th>Name</th><th>Phone</th><th>Plan</th><th>Verified</th><th>Expected to date</th><th>Outstanding</th><th>Status</th><th></th></tr>${A.map(m=>`<tr><td>${esc(m.full_name)}</td><td>${esc(m.phone)}</td><td>${N(m.amount)} ${m.freq}</td><td>${N(m.verified_total)}</td><td>${N(expDate(m))}</td><td>${N(missed(m))}</td><td>${tag(m.status)}</td><td>${m.status==='active'?`<button class="btn sm alt" onclick="stop('${m.user_id}')">Stop</button>`:''}</td></tr>`).join('')}</table></div></div>`;
- if(tab==='payout')return `<div class="card"><h2>Payout management · ${ST.payout_date}</h2><p class="mut">You make the transfers in your bank app, then record them here.</p><div class="tw"><table><tr><th>Member</th><th>Plan</th><th>Verified</th><th>Adj.</th><th>Due</th><th>Bank</th><th>Account name</th><th>Account no.</th><th>Status</th><th></th></tr>${A.map(m=>{const b=ADM.banks.find(x=>x.user_id===m.user_id)||{};return `<tr><td>${esc(m.full_name)}</td><td>${N(m.amount)} ${m.freq[0]}</td><td>${N(m.verified_total)}</td><td>${N(adj(m.user_id))}</td><td><b>${N(due(m))}</b></td><td>${esc(b.bank_name||'—')}</td><td>${esc(b.account_name||'—')}</td><td>${esc(b.account_number||'—')}</td><td>${tag(ps(m.user_id))}</td><td><button class="btn sm alt" onclick="adjust('${m.user_id}')">Adjust</button> <button class="btn sm alt" onclick="payStatus('${m.user_id}')">Processing</button> <button class="btn sm grn" onclick="markPaid('${m.user_id}',${due(m)})">Paid</button></td></tr>`}).join('')}</table></div></div>`;
+ if(tab==='members')return `<div class="card"><h2>Members and plans</h2><div class="tw"><table><tr><th>Name</th><th>Phone</th><th>Plan</th><th>Verified</th><th>Expected to date</th><th>Outstanding</th><th>Status</th><th></th></tr>${A.map(m=>`<tr><td>${esc(m.full_name)}</td><td>${esc(m.phone)}</td><td>${planName(m)}</td><td>${N(m.verified_total)}</td><td>${N(expDate(m))}</td><td>${N(missed(m))}</td><td>${tag(m.status)}</td><td>${m.status==='active'?`<button class="btn sm alt" onclick="stop('${m.membership_id}')">Stop</button>`:''}</td></tr>`).join('')}</table></div></div>`;
+ if(tab==='payout')return `<div class="card"><h2>Payout management · ${ST.payout_date}</h2><p class="mut">You make the transfers in your bank app, then record them here.</p><div class="tw"><table><tr><th>Member</th><th>Plans</th><th>Verified</th><th>Adj.</th><th>Due</th><th>Bank</th><th>Account name</th><th>Account no.</th><th>Status</th><th></th></tr>${U2.map(x=>{const b=ADM.banks.find(y=>y.user_id===x.id)||{};return `<tr><td>${esc(x.name)}</td><td>${x.ms.map(planName).join(', ')}</td><td>${N(x.ver)}</td><td>${N(adj(x.id))}</td><td><b>${N(due(x))}</b></td><td>${esc(b.bank_name||'—')}</td><td>${esc(b.account_name||'—')}</td><td>${esc(b.account_number||'—')}</td><td>${tag(ps(x.id))}</td><td><button class="btn sm alt" onclick="adjust('${x.id}')">Adjust</button> <button class="btn sm alt" onclick="payStatus('${x.id}')">Processing</button> <button class="btn sm grn" onclick="markPaid('${x.id}',${due(x)})">Paid</button></td></tr>`}).join('')}</table></div></div>`;
  if(tab==='reports'){const mo=Array(12).fill(0);ADM.pays.filter(p=>p.status==='verified'&&p.cycle_year===ST.cycle_year).forEach(p=>mo[+p.transfer_date.slice(5,7)-1]+=+p.amount);
- return `<div class="card"><h2>Reports</h2><p>Total verified: <b>${N(tot)}</b> · To return: <b>${N(A.reduce((a,m)=>a+due(m),0))}</b> · Paid out: ${A.filter(m=>ps(m.user_id)==='paid').length}/${A.length}</p><p class="mut">Verified payments only. No interest is calculated.</p>
+ return `<div class="card"><h2>Reports</h2><p>Total verified: <b>${N(tot)}</b> · To return: <b>${N(sum(U2,due))}</b> · Paid out: ${U2.filter(x=>ps(x.id)==='paid').length}/${U2.length}</p><p class="mut">Verified payments only. No interest is calculated.</p>
  <div class="tw"><table><tr>${'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ').map(x=>`<th>${x}</th>`).join('')}</tr><tr>${mo.map(x=>`<td>${x?N(x):'–'}</td>`).join('')}</tr></table></div>
  <div class="row" style="margin-top:10px"><button class="btn sm" onclick="exportMembers()">Export members CSV</button><button class="btn sm" onclick="exportPays()">Export payments CSV</button></div></div>`}
  if(tab==='settings'){const s=ST;return `<div class="card"><h2>Settings</h2><form onsubmit="saveSettings(event)">${[['app','App name',s.app_name],['year','Savings year',s.cycle_year,'number'],['start','Cycle start',s.cycle_start,'date'],['cutoff','Final contribution cutoff',s.contribution_cutoff,'date'],['payout','Payout date',s.payout_date,'date'],['bank','Bank',s.bank_name],['an','GTBank account name',s.account_name],['ano','GTBank account number',s.account_number]].map(([k,l,v,t])=>`<label>${l}</label><input name="${k}" type="${t||'text'}" value="${esc(v)}">`).join('')}<button class="btn">Save settings</button></form></div>
  <div class="card"><h3>Contribution plans</h3>${PLANS.map(p=>`<p>${N(p.amount)} ${p.freq} ${tag(p.is_active?'active':'stopped').replace('stopped','inactive')} <button class="btn sm alt" onclick="togglePlan('${p.id}',${p.is_active})">${p.is_active?'Deactivate':'Activate'}</button></p>`).join('')}
  <form class="row" onsubmit="addPlan(event)"><select name="freq" style="width:auto"><option>weekly</option><option>monthly</option></select><input name="amount" type="number" min="1" placeholder="Amount ₦" style="width:130px" required><input name="label" placeholder="Label (optional)" style="width:160px"><button class="btn sm">Add plan</button></form></div>`}
 }
-function exportMembers(){const po=u=>ADM.payouts.find(x=>x.user_id===u);csv('members-savings.csv',[['Name','Plan','Status','Verified','Adjustment','Due','Outstanding','Payout status'],...ADM.members.map(m=>{const a=+po(m.user_id)?.adjustment||0;return [m.full_name,m.amount+' '+m.freq,m.status,m.verified_total,a,+m.verified_total+a,missed(m),po(m.user_id)?.status||'awaiting']})])}
+function exportMembers(){const A=ADM.members;const ids=[...new Set(A.map(m=>m.user_id))];csv('members-savings.csv',[['Name','Plans','Verified','Adjustment','Due','Outstanding','Payout status'],...ids.map(id=>{const ms=A.filter(m=>m.user_id===id),p=ADM.payouts.find(x=>x.user_id===id),v=sum(ms,m=>m.verified_total),a=+p?.adjustment||0;return [ms[0].full_name,ms.map(planName).join(' + '),v,a,v+a,sum(ms,missed),p?.status||'awaiting']})])}
 function exportPays(){csv('payments.csv',[['Member','Date','Amount','Reference','Status'],...ADM.pays.map(p=>[p.profiles?.full_name,p.transfer_date,p.amount,p.reference,p.status])])}
 
 function render(){
  const adm=P.role==='admin';
- const tabs=adm?[['home','Home'],['pay','Payments'],['members','Members'],['payout','Payouts'],['reports','Reports'],['settings','Settings']]:[['home','Home'],['pay','Pay'],['history','History'],['payout','Payout'],['alerts','Alerts']];
+ const tabs=adm?[['home','Home'],['pay','Payments'],['members','Members'],['payout','Payouts'],['reports','Reports'],['settings','Settings']]:[['home','Home'],['plans','Plans'],['pay','Pay'],['history','History'],['payout','Payout'],['alerts','Alerts']];
  const unread=NOTES.filter(n=>!n.is_read).length;
- let body=adm?adminView():(MEM?memberView():planPicker());
+ const body=adm?adminView():(MEMS.length?memberView():planPicker());
  $('#app').innerHTML=`<div class="top"><div class="logo">${esc(ST.app_name).replace(/ (\S+)$/,' <span>$1</span>')}</div><div class="row"><small class="mut">${esc(P.full_name)}</small><button class="btn alt sm" onclick="logout()">Sign out</button></div></div>${body}
  ${!adm?`<p style="text-align:center"><a href="#" class="mut" onclick="claim();return false" style="font-size:.75rem">I’m the owner (first-time setup)</a></p>`:''}
- ${adm||MEM?`<nav>${tabs.map(([k,l])=>`<button class="${tab===k?'on':''}" onclick="go('${k}')">${l}${k==='alerts'&&unread?' ('+unread+')':''}</button>`).join('')}</nav>`:''}`;
+ ${adm||MEMS.length?`<nav>${tabs.map(([k,l])=>`<button class="${tab===k?'on':''}" onclick="go('${k}')">${l}${k==='alerts'&&unread?' ('+unread+')':''}</button>`).join('')}</nav>`:''}`;
 }
 async function boot(){
  const {data:{session}}=await sb.auth.getSession();
